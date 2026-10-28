@@ -2,24 +2,53 @@
 
 import { useMemo, useState } from "react";
 import { segmentTranscript, quoteMatches } from "@/lib/transcript";
+import type { Analysis } from "@/lib/analysis";
 
 const sample = "I was offered a team lead role. It pays more, but I worry I will spend all day in meetings. I enjoy helping teammates one-on-one. I don't know how much time the role actually spends in meetings.";
+const labels = { reported_fact: "User-reported facts", assumption: "Assumptions", uncertainty: "Uncertainties", tradeoff: "Trade-offs" } as const;
 
 export default function Home() {
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [accepted, setAccepted] = useState(false);
+  const [analysis, setAnalysis] = useState<(Analysis & { degraded?: boolean }) | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [prediction, setPrediction] = useState("");
   const segments = useMemo(() => segmentTranscript(submitted ?? ""), [submitted]);
 
-  function reset() { setInput(""); setSubmitted(null); setAccepted(false); }
+  function reset() { setInput(""); setSubmitted(null); setAccepted(false); setAnalysis(null); setError(""); setPrediction(""); }
+  function edit() { setInput(submitted ?? ""); setSubmitted(null); setAnalysis(null); setError(""); }
+  async function analyze() {
+    if (!submitted || loading) return;
+    setLoading(true); setError(""); setAnalysis(null);
+    try {
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: submitted }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "Analysis failed.");
+      setAnalysis(result as Analysis);
+      setPrediction(result.experiment?.prediction ?? "");
+    } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong."); }
+    finally { setLoading(false); }
+  }
 
   return <main className="shell">
-    <header className="topbar"><div className="brand"><span className="mark">✳</span><span>CLARITY <strong>ROOM</strong></span></div><span className="badge">HACKATHON BUILD · FOUNDATION</span></header>
+    <header className="topbar"><div className="brand"><span className="mark">✳</span><span>CLARITY <strong>ROOM</strong></span></div><span className="badge">META AI · EXPERIMENTAL BUILD</span></header>
     <section className="hero"><div className="eyebrow">A BETTER WAY TO DECIDE</div><h1>Clarity begins with<br/><em>one small experiment.</em></h1><p>Not an answer handed to you. A clearer picture of what you know, what you assume, and what you could safely test.</p></section>
     <section className="workspace">
-      {!accepted ? <div className="card"><span className="step">BEFORE WE BEGIN</span><h2>Your decision stays yours.</h2><p>This is a non-clinical decision reflection tool, not therapy, medical advice, or emergency support. This early build keeps text in your browser session only; do not enter sensitive personal information.</p><label className="consent"><input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} /> I understand and want to continue.</label></div>
-      : submitted === null ? <div className="card"><span className="step">01 / DESCRIBE</span><h2>What's the decision on your mind?</h2><p>Write naturally. You can change your words before proceeding.</p><label htmlFor="decision" className="field-label">YOUR WORDS</label><textarea id="decision" value={input} onChange={(e) => setInput(e.target.value)} placeholder="I have an opportunity, but I'm not sure…" maxLength={6000} /><div className="actions"><button className="secondary" onClick={() => setInput(sample)}>Try example</button><button disabled={input.trim().length < 20} onClick={() => setSubmitted(input.trim())}>Continue →</button></div><p className="fine">Typed-input foundation only. Voice and Meta AI analysis are not connected yet.</p></div>
-      : <div className="card"><span className="step">02 / CHECK YOUR WORDS</span><h2>Make sure we heard you correctly.</h2><p>These segments are split locally and linked to exact character positions in your text. They are <strong>not</strong> AI-generated facts or conclusions.</p><div className="quote-list">{segments.map((segment) => <div className="quote" key={segment.id}><span>{segment.id} · {segment.start}–{segment.end}</span><p>“{segment.text}”</p><small>{quoteMatches(submitted, segment) ? "✓ Exact source match" : "Source mismatch"}</small></div>)}</div><div className="actions"><button className="secondary" onClick={() => { setInput(submitted); setSubmitted(null); }}>← Edit my words</button><button onClick={reset}>Start over</button></div><p className="fine">Next milestone: Meta-powered Extractor + Challenger, provenance validation, and editable Decision Map v1. No analysis has been performed.</p></div>}
+      {!accepted ? <div className="card"><span className="step">BEFORE WE BEGIN</span><h2>Your decision stays yours.</h2><p>This is a non-clinical decision reflection tool, not therapy, medical advice, or emergency support. Text is sent to Meta AI for processing when you select Analyze; do not enter sensitive personal information. No experiment is saved by this early build.</p><label className="consent"><input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} /> I understand and want to continue.</label></div>
+      : submitted === null ? <div className="card"><span className="step">01 / DESCRIBE</span><h2>What's the decision on your mind?</h2><p>Write naturally. You can change your words before proceeding.</p><label htmlFor="decision" className="field-label">YOUR WORDS</label><textarea id="decision" value={input} onChange={(e) => setInput(e.target.value)} placeholder="I have an opportunity, but I'm not sure…" maxLength={6000} /><div className="actions"><button className="secondary" onClick={() => setInput(sample)}>Try example</button><button disabled={input.trim().length < 20} onClick={() => setSubmitted(input.trim())}>Continue →</button></div><p className="fine">Typed input is available. Voice input is not implemented yet.</p></div>
+      : <div className="card"><span className="step">02 / VERIFY & ANALYZE</span><h2>{analysis ? "Your first Decision Map" : "Make sure we heard you correctly."}</h2>
+        {!analysis && <><p>These segments are linked to exact character positions in your text. They are not AI conclusions.</p><div className="quote-list">{segments.map((segment) => <div className="quote" key={segment.id}><span>{segment.id} · {segment.start}–{segment.end}</span><p>“{segment.text}”</p><small>{quoteMatches(submitted, segment) ? "✓ Exact source match" : "Source mismatch"}</small></div>)}</div></>}
+        {error && <p role="alert" style={{color:"#ffc4b6"}}>{error}</p>}
+        {analysis && <><p>Generated by Meta {analysis.model}. All displayed findings have exact quotation matches against your text. These are user-reported statements, not externally verified facts.</p>{analysis.degraded && <p role="status">One analysis role failed; results may be incomplete.</p>}
+          {(["reported_fact","assumption","uncertainty","tradeoff"] as const).map((category) => <section key={category} className="quote-list" aria-label={labels[category]}><h3>{labels[category]}</h3>{analysis.findings.filter(f => f.category === category).map(f => <div className="quote" key={f.id}><p>{f.text}</p><small>Source: “{f.quote}” · {f.start}–{f.end} · {f.source}</small></div>)}</section>)}
+          {analysis.rejected > 0 && <p className="fine">{analysis.rejected} unsupported or malformed findings excluded by validation.</p>}
+          <div className="quote-list"><h3>Proposed reversible experiment</h3>{analysis.experiment ? <div className="quote"><p>{analysis.experiment.action}</p><small>Duration: {analysis.experiment.duration}</small><p>{analysis.experiment.safetyNote}</p><label htmlFor="prediction" className="field-label">EDITABLE PREDICTION — NOT YET LOCKED</label><textarea id="prediction" value={prediction} onChange={e => setPrediction(e.target.value)} /></div> : <p>No safe experiment proposed. You can revise your description.</p>}</div>
+          <p className="fine">Prototype only: experiment locking, secure return tokens and Map v2 are not available yet. Do not rely on generated experiments for high-stakes decisions.</p>
+        </>}
+        <div className="actions"><button className="secondary" disabled={loading} onClick={edit}>← Edit my words</button>{analysis ? <button onClick={reset}>Start over</button> : <button disabled={loading} onClick={analyze}>{loading ? "Analyzing with Meta AI…" : "Analyze with Meta AI →"}</button>}</div>
+      </div>}
     </section>
     <footer>BUILT FOR THE META GLOBAL AI DEVELOPER HACKATHON 2026 · NEW, STANDALONE WORK</footer>
   </main>;
