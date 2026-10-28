@@ -23,3 +23,15 @@ export function validateFindings(source: string, raw: unknown, origin: "extracto
 export function isUnsafe(source: string): boolean {
   return /\b(suicid(?:e|al)|kill myself|self[- ]harm|hurt myself|overdose|harm someone|kill (?:him|her|them)|medical diagnosis|stop (?:my )?medication)\b/i.test(source);
 }
+
+/** Remove repeated claims from parallel agents while retaining the first verified citation. */
+export function deduplicateFindings(findings: Finding[]): Finding[] {
+  const seen = new Set<string>();
+  return findings.filter(f => {
+    const normalized = f.text.toLowerCase().replace(/^(user reports?|speaker (?:states?|assumes?|weighs?)|user (?:assumes?|does not know))\s+/,"").replace(/[^a-z0-9]+/g," ").trim();
+    const key = f.category + ":" + f.quote.toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const alt = f.category + ":" + normalized;
+    if (seen.has(key) || seen.has(alt)) return false;
+    seen.add(key); seen.add(alt); return true;
+  });
+}
