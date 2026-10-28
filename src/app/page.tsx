@@ -17,9 +17,18 @@ export default function Home() {
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState("");
  const [reviewed,setReviewed]=useState(false);
+ const [returnToken,setReturnToken]=useState("");
+ const [locking,setLocking]=useState(false);
  const segments=segmentTranscript(source??"");
  const updateFinding=(id:string, patch:Partial<Finding>)=>{setReviewed(false);setFindings(items=>items.map(f=>f.id===id?{...f,...patch}:f));};
- const reset=()=>{setInput("");setSource(null);setMap(null);setFindings([]);setError("");setReviewed(false);};
+ const reset=()=>{setReturnToken("");setInput("");setSource(null);setMap(null);setFindings([]);setError("");setReviewed(false);};
+ async function lockPrediction(){
+  if(!source||!reviewed||locking)return;
+  setLocking(true);setError("");
+  try{const res=await fetch("/api/lock",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source,findings,experiment,reviewed}),cache:"no-store"});const data=await res.json();if(!res.ok)throw new Error(data.error??"Lock failed.");setReturnToken(data.token);}
+  catch(e){setError(e instanceof Error?e.message:"Lock failed.");}
+  finally{setLocking(false);}
+ }
  async function analyze(){
   if(!source||loading)return;
   setLoading(true);setError("");setMap(null);setReviewed(false);
@@ -38,7 +47,7 @@ export default function Home() {
   <header className="topbar"><div className="brand"><span className="mark">✳</span><span>CLARITY <strong>ROOM</strong></span></div><span className="badge">META AI · EXPERIMENTAL BUILD</span></header>
   <section className="hero"><div className="eyebrow">A BETTER WAY TO DECIDE</div><h1>Clarity begins with<br/><em>one small experiment.</em></h1><p>Not an answer handed to you. A clearer picture of what you know, what you assume, and what you could safely test.</p></section>
   <section className="workspace">
-   {!consent?<div className="card"><span className="step">BEFORE WE BEGIN</span><h2>Your decision stays yours.</h2><p>Non-clinical decision reflection only; not therapy, medical advice or emergency support. When you analyze, your text is sent to Meta AI. Do not enter sensitive personal information. This prototype does not save or lock your experiment.</p><label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I understand and want to continue.</label></div>
+   {!consent?<div className="card"><span className="step">BEFORE WE BEGIN</span><h2>Your decision stays yours.</h2><p>Non-clinical decision reflection only; not therapy, medical advice or emergency support. When you analyze, your text is sent to Meta AI. Do not enter sensitive personal information. If you lock an experiment, its text and prediction are stored for 30 days and accessible through a private return link.</p><label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I understand and want to continue.</label></div>
    :source===null?<div className="card"><span className="step">01 / DESCRIBE</span><h2>What's the decision on your mind?</h2><p>Describe the situation naturally. You can correct your words before analysis.</p><label className="field-label" htmlFor="decision">YOUR WORDS</label><textarea id="decision" maxLength={6000} value={input} onChange={e=>setInput(e.target.value)} placeholder="I have an opportunity, but I'm not sure…"/><div className="actions"><button className="secondary" onClick={()=>setInput(example)}>Try example</button><button disabled={input.trim().length<20} onClick={()=>setSource(input.trim())}>Continue →</button></div><p className="fine">Typed input only in this build; voice is planned.</p></div>
    :<div className="card"><span className="step">{map?"03 / DECISION MAP V1 · REVIEW":"02 / VERIFY & ANALYZE"}</span><h2>{map?"Your first Decision Map":"Make sure we heard you correctly."}</h2>
     {!map&&<><p>These segments reference your original text, not AI conclusions.</p><div className="quote-list">{segments.map(s=><div className="quote" key={s.id}><small>{s.id} · {s.start}–{s.end} · {quoteMatches(source,s)?"Exact source match":"Mismatch"}</small><p>“{s.text}”</p></div>)}</div></>}
@@ -49,10 +58,11 @@ export default function Home() {
      {map.rejected>0&&<p className="fine">{map.rejected} unsupported or malformed findings were rejected by source validation.</p>}
      <section className="quote-list"><h3>One small, reversible experiment</h3>{map.experiment?<div className="quote"><label className="field-label" htmlFor="action">ACTION — EDIT BEFORE APPROVING</label><textarea className="compact" id="action" value={experiment.action} onChange={e=>{setReviewed(false);setExperiment({...experiment,action:e.target.value});}} maxLength={600}/><label className="field-label" htmlFor="duration">DURATION</label><input id="duration" value={experiment.duration} onChange={e=>{setReviewed(false);setExperiment({...experiment,duration:e.target.value});}} maxLength={120}/><label className="field-label" htmlFor="prediction">YOUR PREDICTION — NOT LOCKED</label><textarea className="compact" id="prediction" value={experiment.prediction} onChange={e=>{setReviewed(false);setExperiment({...experiment,prediction:e.target.value});}} maxLength={600}/><p className="fine">Safety note: {experiment.safetyNote}</p></div>:<p>No safe experiment was generated. Edit your original words to try again.</p>}</section>
      <label className="consent"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/> I've reviewed this draft map and the experiment.</label>
-     {reviewed&&<p role="status" className="fine">Map v1 reviewed locally. This is NOT a saved or locked experiment yet; prediction locking and return links are the next milestone.</p>}
-     <p className="fine">Prototype only. No persistent storage, prediction lock, or return map yet. Avoid high-stakes decisions.</p>
+     {reviewed&&!returnToken&&<button disabled={locking||!map.experiment||!experiment.action.trim()||!experiment.duration.trim()||!experiment.prediction.trim()} onClick={lockPrediction}>{locking?"Securing your prediction…":"🔒 Lock my prediction"}</button>}
+     {returnToken&&<div className="quote" role="status"><h3>Prediction locked</h3><p>Your original prediction is saved and cannot be edited. Save this private link to return after your experiment. Anyone with the link can view it.</p><input readOnly aria-label="Private return link" value={typeof window==="undefined"?"":`${window.location.origin}/return?token=${returnToken}`}/><button className="secondary mini" onClick={()=>navigator.clipboard.writeText(`${window.location.origin}/return?token=${returnToken}`)}>Copy private return link</button></div>}
+     <p className="fine">Nonclinical decision experiment. Locked experiments expire after 30 days. Avoid high-stakes decisions.</p>
     </>}
-    <div className="actions"><button className="secondary" disabled={loading} onClick={()=>{setInput(source);setSource(null);setMap(null);setError("");}}>← Edit my words</button>{map?<button onClick={reset}>Start over</button>:<button disabled={loading} onClick={analyze}>{loading?"Analyzing with Meta AI…":"Analyze with Meta AI →"}</button>}</div>
+    <div className="actions"><button className="secondary" disabled={loading} onClick={()=>{setInput(source);setSource(null);setMap(null);setError("");setReturnToken("");}}>← Edit my words</button>{map?<button onClick={reset}>Start over</button>:<button disabled={loading} onClick={analyze}>{loading?"Analyzing with Meta AI…":"Analyze with Meta AI →"}</button>}</div>
    </div>}
   </section><footer>BUILT FOR THE META GLOBAL AI DEVELOPER HACKATHON 2026 · NEW, STANDALONE WORK</footer>
  </main>;
