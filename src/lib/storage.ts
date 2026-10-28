@@ -32,6 +32,5 @@ export async function ensureSchema() {
  END IF;
  RETURN NEW;
  END $$`;
- await sql`DROP TRIGGER IF EXISTS clarity_immutable_lock ON clarity_experiments`;
- await sql`CREATE TRIGGER clarity_immutable_lock BEFORE UPDATE ON clarity_experiments FOR EACH ROW EXECUTE FUNCTION clarity_guard_lock()`;
+ await sql`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'clarity_immutable_lock') THEN CREATE TRIGGER clarity_immutable_lock BEFORE UPDATE ON clarity_experiments FOR EACH ROW EXECUTE FUNCTION clarity_guard_lock(); END IF; END $$`;
 }
