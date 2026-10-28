@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const e = design && typeof design === "object" ? (design as { experiment?: unknown }).experiment : null;
     const experiment = e && typeof e === "object" && ["action","duration","prediction","safetyNote"].every(k => typeof (e as Record<string, unknown>)[k] === "string")
       ? Object.fromEntries(["action","duration","prediction","safetyNote"].map(k => [k, String((e as Record<string, unknown>)[k]).slice(0, 600)])) : null;
-    const cleanedExperiment = experiment && Object.values(experiment).every(v => typeof v === "string" && v.trim().length > 0 && !/\\[\\s*\\d+\\s*[-–]\\s*\\d+\\s*\\]|\\b(?:extractor|challenger|offset|source quote)\\b/i.test(v)) ? experiment : null;
+    const cleanedExperiment = experiment && Object.values(experiment).every(v => typeof v === "string" && v.trim().length > 0 && !/\[\s*\d+\s*[-–]\s*\d+\s*\]|\b(?:extractor|challenger|offset|source quote)\b/i.test(v)) ? experiment : null;
     return NextResponse.json({ findings, rejected: av.rejected + bv.rejected, experiment: cleanedExperiment, model: "muse-spark-1.3", pipeline: ["extractor", "challenger", "source-validation", "experiment-designer"], degraded: a.status === "rejected" || b.status === "rejected" }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Meta analysis could not finish. Please try again later." }, { status: 502 });
