@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Analysis, Finding } from "@/lib/analysis";
 import { segmentTranscript, quoteMatches } from "@/lib/transcript";
 
@@ -19,6 +19,20 @@ export default function Home() {
  const [reviewed,setReviewed]=useState(false);
  const [returnToken,setReturnToken]=useState("");
  const [locking,setLocking]=useState(false);
+ const [voiceStatus,setVoiceStatus]=useState(""),[listening,setListening]=useState(false),[voiceSupported,setVoiceSupported]=useState(false);
+ const recognitionRef=useRef<any>(null);
+ useEffect(()=>{const w=window as any;setVoiceSupported(Boolean(w.SpeechRecognition||w.webkitSpeechRecognition));return()=>{recognitionRef.current?.stop();};},[]);
+ function toggleVoice(){
+  if(listening){recognitionRef.current?.stop();setListening(false);return;}
+  const w=window as any;const Recognition=w.SpeechRecognition||w.webkitSpeechRecognition;
+  if(!Recognition){setVoiceStatus("Voice transcription is not available in this browser. You can type your decision instead.");return;}
+  const rec=new Recognition();rec.lang="en-US";rec.continuous=true;rec.interimResults=false;
+  rec.onresult=(event:any)=>{let spoken="";for(let i=event.resultIndex;i<event.results.length;i++){if(event.results[i].isFinal)spoken+=event.results[i][0].transcript+" ";}if(spoken)setInput(prev=>(prev.trim()?prev.trim()+" ":"")+spoken.trim());};
+  rec.onerror=(event:any)=>{setVoiceStatus(event.error==="not-allowed"?"Microphone access was denied. You can still type.":"Voice transcription stopped. You can continue typing.");setListening(false);};
+  rec.onend=()=>setListening(false);recognitionRef.current=rec;
+  try{rec.start();setListening(true);setVoiceStatus("Listening. Your words will appear below; review and edit them before analysis.");}catch{setVoiceStatus("Could not start microphone. Please type instead.");}
+ }
+
  const segments=segmentTranscript(source??"");
  const updateFinding=(id:string, patch:Partial<Finding>)=>{setReviewed(false);setFindings(items=>items.map(f=>f.id===id?{...f,...patch}:f));};
  const reset=()=>{setReturnToken("");setInput("");setSource(null);setMap(null);setFindings([]);setError("");setReviewed(false);};
@@ -48,7 +62,7 @@ export default function Home() {
   <section className="hero"><div className="eyebrow">A BETTER WAY TO DECIDE</div><h1>Clarity begins with<br/><em>one small experiment.</em></h1><p>Not an answer handed to you. A clearer picture of what you know, what you assume, and what you could safely test.</p></section>
   <section className="workspace">
    {!consent?<div className="card"><span className="step">BEFORE WE BEGIN</span><h2>Your decision stays yours.</h2><p>Non-clinical decision reflection only; not therapy, medical advice or emergency support. When you analyze, your text is sent to Meta AI. Do not enter sensitive personal information. If you lock an experiment, its text and prediction are stored for 30 days and accessible through a private return link.</p><label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I understand and want to continue.</label></div>
-   :source===null?<div className="card"><span className="step">01 / DESCRIBE</span><h2>What's the decision on your mind?</h2><p>Describe the situation naturally. You can correct your words before analysis.</p><label className="field-label" htmlFor="decision">YOUR WORDS</label><textarea id="decision" maxLength={6000} value={input} onChange={e=>setInput(e.target.value)} placeholder="I have an opportunity, but I'm not sure…"/><div className="actions"><button className="secondary" onClick={()=>setInput(example)}>Try example</button><button disabled={input.trim().length<20} onClick={()=>setSource(input.trim())}>Continue →</button></div><p className="fine">Typed input only in this build; voice is planned.</p></div>
+   :source===null?<div className="card"><span className="step">01 / DESCRIBE</span><h2>What's the decision on your mind?</h2><p>Describe the situation naturally. You can correct your words before analysis.</p><label className="field-label" htmlFor="decision">YOUR WORDS</label><textarea id="decision" maxLength={6000} value={input} onChange={e=>setInput(e.target.value)} placeholder="I have an opportunity, but I'm not sure…"/><div className="actions">{voiceSupported&&<button className="secondary" type="button" onClick={toggleVoice}>{listening?"■ Stop recording":"🎙 Speak my decision"}</button>}<button className="secondary" onClick={()=>setInput(example)}>Try example</button><button disabled={input.trim().length<20} onClick={()=>setSource(input.trim())}>Continue →</button></div><p className="fine" role="status">{voiceStatus||"Voice transcription is available on supported browsers. Review and edit the transcript before continuing; typed input always works."}</p></div>
    :<div className="card"><span className="step">{map?"03 / DECISION MAP V1 · REVIEW":"02 / VERIFY & ANALYZE"}</span><h2>{map?"Your first Decision Map":"Make sure we heard you correctly."}</h2>
     {!map&&<><p>These segments reference your original text, not AI conclusions.</p><div className="quote-list">{segments.map(s=><div className="quote" key={s.id}><small>{s.id} · {s.start}–{s.end} · {quoteMatches(source,s)?"Exact source match":"Mismatch"}</small><p>“{s.text}”</p></div>)}</div></>}
     {error&&<p role="alert" style={{color:"#ffc4b6"}}>{error}</p>}
