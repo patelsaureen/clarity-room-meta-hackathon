@@ -33,5 +33,5 @@ export async function ensureSchema() {
  RETURN NEW;
  END $$`;
  await sql`DELETE FROM clarity_experiments WHERE expires_at <= now()`;
- await sql`DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'clarity_immutable_lock') THEN CREATE TRIGGER clarity_immutable_lock BEFORE UPDATE ON clarity_experiments FOR EACH ROW EXECUTE FUNCTION clarity_guard_lock(); END IF; END $$`;
+ try { await sql`CREATE TRIGGER clarity_immutable_lock BEFORE UPDATE ON clarity_experiments FOR EACH ROW EXECUTE FUNCTION clarity_guard_lock()`; } catch(e) { if(!String(e).includes("already exists")) throw e; }
 }
